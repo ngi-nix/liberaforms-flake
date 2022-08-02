@@ -5,13 +5,13 @@
     nixpkgs.url = "github:NixOS/nixpkgs";
     liberaforms.url = "gitlab:liberaforms/liberaforms";
     liberaforms.flake = false;
-    machnix.url = "github:DavHau/mach-nix/3.5.0";
+    mach-nix.url = "github:DavHau/mach-nix/3.5.0";
   };
 
   outputs = {
     self,
     nixpkgs,
-    machnix,
+    mach-nix,
     ...
   } @ inputs: let
     # Extract version from VERSION.txt.
@@ -23,24 +23,22 @@
 
     # System types to support.
     supportedSystems = ["x86_64-linux"];
-
     # Helper function to generate an attrset '{ x86_64-linux = f "x86_64-linux"; ... }'.
     genSystems = nixpkgs.lib.genAttrs supportedSystems;
-
     pkgsFor = nixpkgs.legacyPackages;
 
     # mach-nix instantiated for supported system types.
     machnixFor = genSystems (system:
-      import machnix {
+      import mach-nix {
         pkgs = pkgsFor.${system};
-        python = "python38";
+        python = "python310";
 
         # The default version of the pypi dependencies db that is updated with every mach-nix release
         # might not be sufficient for newer releases of liberaforms. Edit here to pin to specific commit.
         # The corresponding sha256 hash can be obtained with:
         # $ nix-prefetch-url --unpack https://github.com/DavHau/pypi-deps-db/tarball/<pypiDataRev>
-        pypiDataRev = "020c5fbad4b0a6a9317646ed377631123730031c";
-        pypiDataSha256 = "14a0b5gn3rhd10yhg7a5m3mx9ans1v105iy0xdxik8v4zyjw3hmd";
+        pypiDataRev = "f61b6cc4a8b345ea07526c6a3929a8cbc0cc87a8";
+        pypiDataSha256 = "1jvs51gsy3dy0ajgkk0yw7h06rrifji3wgc9sk2pamzlpmv03lgk";
       });
   in {
     # A Nixpkgs overlay.
