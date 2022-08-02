@@ -1,17 +1,18 @@
-{ config, lib, pkgs, ... }:
-
-with lib;
-let
-  liberaforms = pkgs.liberaforms;
+self: {
+  config,
+  lib,
+  pkgs,
+  ...
+}:
+with lib; let
   cfg = config.services.liberaforms;
+
   user = "liberaforms";
   group = "liberaforms";
   default_home = "/var/lib/liberaforms";
   default_logs = "/var/log/liberaforms";
   penv = pkgs.liberaforms-env;
-in
-{
-
+in {
   options.services.liberaforms = with types; {
     enable = mkEnableOption "LiberaForms server";
 
@@ -22,6 +23,16 @@ in
     enableHTTPS = mkEnableOption "HTTPS for connections to nginx";
 
     enableDatabaseBackup = mkEnableOption "Cron job for pg_dump";
+
+    package = mkOption {
+      type = types.package;
+      default = self.packages.${pkgs.system}.default;
+      defaultText = literalExpression "<LiberaForms flake>.packages.<system>.default";
+      example = literalExpression "pkgs.liberaforms";
+      description = ''
+        LiberaForms package to use.
+      '';
+    };
 
     domain = mkOption {
       type = types.str;
@@ -73,7 +84,7 @@ in
       description = ''
         Extra configuration for LiberaForms to be appended on the
         configuration.
-        see https://gitlab.com/liberaforms/liberaforms/-/blob/develop/dotenv.example 
+        see https://gitlab.com/liberaforms/liberaforms/-/blob/develop/dotenv.example
         for all options.
       '';
       default = "";
@@ -95,7 +106,7 @@ in
     dbPasswordFile = mkOption {
       type = types.str;
       default = "/etc/liberaforms/db-password.key";
-      description = ''    
+      description = ''
         A file that contains a password for the liberaforms user in postgres, must be set.
         Created at default location by liberaforms-init script with `openssl rand -base64 32`.
       '';
@@ -104,7 +115,7 @@ in
     cryptoKeyFile = mkOption {
       type = types.str;
       default = "/etc/liberaforms/crypto.key";
-      description = ''    
+      description = ''
         A file that contains a key to encrypt files uploaded to liberaforms.
         Created at default location by liberaforms-init script with `flask cryptokey create`.
       '';
@@ -158,22 +169,20 @@ in
   };
 
   config = mkIf cfg.enable {
-
-    systemd.tmpfiles.rules =
-      [
-        "d /var/lib/liberaforms 755 liberaforms"
-        "d /var/log/liberaforms 755 liberaforms"
-        "d /var/backups/liberaforms 755 postgres"
-        "d /etc/liberaforms 700 liberaforms"
-      ];
+    systemd.tmpfiles.rules = [
+      "d /var/lib/liberaforms 755 liberaforms"
+      "d /var/log/liberaforms 755 liberaforms"
+      "d /var/backups/liberaforms 755 postgres"
+      "d /etc/liberaforms 700 liberaforms"
+    ];
 
     systemd.services.liberaforms = {
       description = "LiberaForms server";
-      wantedBy = [ "multi-user.target" ];
-      after = [ "network.target" "postgresql.service" ];
-      requires = [ "postgresql.service" ];
+      wantedBy = ["multi-user.target"];
+      after = ["network.target" "postgresql.service"];
+      requires = ["postgresql.service"];
       restartIfChanged = true;
-      path = with pkgs; [ postgresql_11 liberaforms-env openssl ];
+      path = with pkgs; [postgresql_11 liberaforms-env openssl];
 
       serviceConfig = {
         Type = "simple";
@@ -268,14 +277,14 @@ in
           ## Setting up working dir for liberaforms ##
           ############################################
           cd ${cfg.workDir}
-          ln -sf ${liberaforms}/* .
+          ln -sf ${cfg.package}/* .
           # wsgi.py cannot be a symlink because its location determines working dir of gunicorn/flask.
           rm ./wsgi.py
-          cp ${liberaforms}/wsgi.py ./wsgi.py
+          cp ${cfg.package}/wsgi.py ./wsgi.py
           # After instance creation, ./uploads must remain stateful because it contains uploaded user data.
           if [[ -L "./uploads" ]]; then
             rm -r ./uploads
-            cp -rL ${liberaforms}/uploads .
+            cp -rL ${cfg.package}/uploads .
             chmod -R +w uploads
           fi
 
@@ -314,13 +323,12 @@ in
       };
     };
 
-    users.users.${user} =
-      {
-        group = group;
-        home = default_home;
-        isSystemUser = true;
-      };
-    users.groups.${group} = { };
+    users.users.${user} = {
+      group = group;
+      home = default_home;
+      isSystemUser = true;
+    };
+    users.groups.${group} = {};
 
     services.postgresql = mkIf cfg.enablePostgres {
       enable = true;
@@ -344,11 +352,8 @@ in
     # Based on https://gitlab.com/liberaforms/liberaforms/-/blob/main/docs/nginx.example
 
     networking = {
-      extraHosts =
-        ''
-          127.0.0.1 liberaforms
-        '';
-      firewall.allowedTCPPorts = mkIf cfg.enableNginx [ 80 443 ];
+      extraHosts = "127.0.0.1 liberaforms";
+      firewall.allowedTCPPorts = mkIf cfg.enableNginx [80 443];
     };
 
     services.nginx = mkIf cfg.enableNginx {
