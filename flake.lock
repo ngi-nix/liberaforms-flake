@@ -31,7 +31,7 @@
         "type": "gitlab"
       }
     },
-    "machnix": {
+    "mach-nix": {
       "inputs": {
         "flake-utils": "flake-utils",
         "nixpkgs": "nixpkgs",
@@ -101,7 +101,7 @@
     "root": {
       "inputs": {
         "liberaforms": "liberaforms",
-        "machnix": "machnix",
+        "mach-nix": "mach-nix",
         "nixpkgs": "nixpkgs_2"
       }
     }
