@@ -26,44 +26,32 @@
     # Helper function to generate an attrset '{ x86_64-linux = f "x86_64-linux"; ... }'.
     genSystems = nixpkgs.lib.genAttrs supportedSystems;
     pkgsFor = nixpkgs.legacyPackages;
-
-    # mach-nix instantiated for supported system types.
-    machnixFor = genSystems (system:
-      import mach-nix {
-        pkgs = pkgsFor.${system};
-        python = "python310";
-
-        # The default version of the pypi dependencies db that is updated with every mach-nix release
-        # might not be sufficient for newer releases of liberaforms. Edit here to pin to specific commit.
-        # The corresponding sha256 hash can be obtained with:
-        # $ nix-prefetch-url --unpack https://github.com/DavHau/pypi-deps-db/tarball/<pypiDataRev>
-        pypiDataRev = "f61b6cc4a8b345ea07526c6a3929a8cbc0cc87a8";
-        pypiDataSha256 = "1jvs51gsy3dy0ajgkk0yw7h06rrifji3wgc9sk2pamzlpmv03lgk";
-      });
   in {
-    # A Nixpkgs overlay.
-    overlays.default = _: prev:
-      with prev.pkgs; let
-        # Adding cffi to the requirements list was necessary for the cryptography package to build properly.
-        # The cryptography build also logged a message about the "packaging" package so it was added as well.
-        liberaforms-env = machnixFor.${system}.mkPython {
-          requirements = builtins.readFile (inputs.liberaforms + "/requirements.txt") + "\ncffi>=1.14.5" + "\npackaging>=20.9";
-        };
-      in {
-        liberaforms = stdenv.mkDerivation rec {
-          inherit version;
-          pname = "liberaforms";
+    overlays.default = _: prev: let
+      inherit (nixpkgs) lib;
 
-          src = inputs.liberaforms;
+      req = builtins.readFile (inputs.liberaforms + "/requirements.txt");
+      # filter out "cryptography" as it makes mach-nix fail. also it is considered bad practice to hold back that package
+      filteredReq = lib.concatStringsSep "\n" (builtins.filter (e: e != "cryptography==36.0.1") (lib.splitString "\n" req));
 
-          dontConfigure = true; # do not use ./configure
-          propagatedBuildInputs = [liberaforms-env python38Packages.flask_migrate postgresql];
-
-          installPhase = ''
-            cp -r . $out
-          '';
-        };
+      liberaforms-env = mach-nix.lib.${system}.mkPython {
+        requirements = filteredReq;
       };
+    in {
+      liberaforms = stdenv.mkDerivation rec {
+        inherit version;
+        pname = "liberaforms";
+
+        src = inputs.liberaforms;
+
+        dontConfigure = true; # do not use ./configure
+        propagatedBuildInputs = [liberaforms-env python38Packages.flask_migrate postgresql];
+
+        installPhase = ''
+          cp -r . $out
+        '';
+      };
+    };
 
     # Provide a nix-shell env to work with liberaforms.
     # TODO: maybe remove? Nix automatically uses the default package if no devShell is found and `nix develop` is run
