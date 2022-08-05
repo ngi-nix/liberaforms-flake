@@ -11,7 +11,7 @@ with lib; let
   group = "liberaforms";
   default_home = "/var/lib/liberaforms";
   default_logs = "/var/log/liberaforms";
-  penv = pkgs.liberaforms-env;
+  penv = self.packages.${pkgs.system}.liberaforms-env;
 in {
   options.services.liberaforms = with types; {
     enable = mkEnableOption "LiberaForms server";
