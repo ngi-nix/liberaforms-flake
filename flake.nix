@@ -34,18 +34,20 @@
       # filter out "cryptography" as it makes mach-nix fail. also it is considered bad practice to hold back that package
       filteredReq = lib.concatStringsSep "\n" (builtins.filter (e: e != "cryptography==36.0.1") (lib.splitString "\n" req));
 
-      liberaforms-env = mach-nix.lib.${system}.mkPython {
+      liberaforms-env = mach-nix.lib.${prev.system}.mkPython {
         requirements = filteredReq;
       };
     in {
-      liberaforms = stdenv.mkDerivation rec {
+      inherit liberaforms-env;
+
+      liberaforms = prev.stdenv.mkDerivation rec {
         inherit version;
         pname = "liberaforms";
 
         src = inputs.liberaforms;
 
         dontConfigure = true; # do not use ./configure
-        propagatedBuildInputs = [liberaforms-env python38Packages.flask_migrate postgresql];
+        propagatedBuildInputs = [liberaforms-env prev.python38Packages.flask_migrate prev.postgresql];
 
         installPhase = ''
           cp -r . $out
@@ -55,15 +57,18 @@
 
     # Provide a nix-shell env to work with liberaforms.
     # TODO: maybe remove? Nix automatically uses the default package if no devShell is found and `nix develop` is run
-    devShells.default = genSystems (system:
-      pkgsFor.${system}.mkShell {
+    devShells = genSystems (system: {
+      default = pkgsFor.${system}.mkShell {
         packages = [self.packages.${system}.liberaforms];
-      });
+      };
+    });
 
     # Provide some packages for selected system types.
     packages = genSystems (
       system:
+        # Include everything from the overlay
         (self.overlays.default null pkgsFor.${system})
+        # Set the default package
         // {default = self.packages.${system}.liberaforms;}
     );
 
