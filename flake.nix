@@ -2,7 +2,7 @@
   description = "Liberaforms — An open source form server";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     liberaforms.url = "gitlab:liberaforms/liberaforms";
     liberaforms.flake = false;
     mach-nix.url = "github:DavHau/mach-nix/3.5.0";
@@ -47,7 +47,11 @@
         src = inputs.liberaforms;
 
         dontConfigure = true; # do not use ./configure
-        propagatedBuildInputs = [liberaforms-env prev.python38Packages.flask_migrate prev.postgresql];
+        propagatedBuildInputs = [liberaforms-env prev.postgresql] ++ (with prev.python39Packages; [
+          flask_migrate
+          flask_login
+          pillow
+        ]);
 
         installPhase = ''
           cp -r . $out
@@ -129,7 +133,7 @@
 
         doCheck = true;
 
-        checkInputs = with pkgs.python38Packages; [pytest pytest-dotenv];
+        checkInputs = with pkgs.python39Packages; [cryptography factory_boy pytest pytest-dotenv] ++ liberaforms.propagatedBuildInputs;
 
         checkPhase = ''
           # Run pytest on the installed version. A running postgres database server is needed.
