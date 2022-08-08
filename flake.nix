@@ -3,145 +3,61 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    mach-nix.url = "github:DavHau/mach-nix/3.5.0";
+
     liberaforms.url = "gitlab:liberaforms/liberaforms";
     liberaforms.flake = false;
-    mach-nix.url = "github:DavHau/mach-nix/3.5.0";
   };
 
-  outputs = {
-    self,
-    nixpkgs,
-    mach-nix,
-    ...
-  } @ inputs: let
-    # Extract version from VERSION.txt.
-    remove-newline = string: builtins.replaceStrings ["\n"] [""] string;
-    version = remove-newline (builtins.readFile (inputs.liberaforms + "/VERSION.txt"));
-
-    # Postgres setup script for tests.
-    initPostgres = ./nix/initPostgres.sh;
-
+  outputs = { self, nixpkgs, ... }@inputs:
+  let
     # System types to support.
     supportedSystems = ["x86_64-linux"];
     # Helper function to generate an attrset '{ x86_64-linux = f "x86_64-linux"; ... }'.
     genSystems = nixpkgs.lib.genAttrs supportedSystems;
     pkgsFor = nixpkgs.legacyPackages;
+
+    resolveOverlays = first: overlays: with nixpkgs.lib; let
+      # Passing inputs here means overlays can be called with the standard signature
+      # but still be parametrized with flakes, maintaining composability. 
+      overlay' = flip (composeManyExtensions ([ (final: prev: { inherit inputs; }) ] ++ overlays));
+      # We don't to expose all of nixpkgs in the resulting attrset (like with .extend()), #TODO why not, or a .pkgs?
+      # so we take the fixpoint ourselves
+      attrs = fix (overlay' first);
+    in builtins.removeAttrs attrs [ "inputs" ]; #TODO I don't like doing it this way but I don't have a better idea how to keep the interface clean.
+
+    # TODO something is happening with argument processing, if I dont add the pkgs argument here it doesnt get passed to the module and breaks
+    # applyModuleArgsIfFunction /nix/store/43m6mis3zbnq5q9rw2yklnf6398p1x93-source/flake.nix
+    callModule = modPath: {pkgs, ...}@args: import modPath (args // { inherit inputs; });
+
+    mkSystem = system: modules: nixpkgs.lib.nixosSystem { inherit system modules; }; # TODO does the system argument make sense?
   in {
-    overlays.default = _: prev: let
-      inherit (nixpkgs) lib;
-
-      req = builtins.readFile (inputs.liberaforms + "/requirements.txt");
-      # filter out "cryptography" as it makes mach-nix fail. also it is considered bad practice to hold back that package
-      filteredReq = lib.concatStringsSep "\n" (builtins.filter (e: e != "cryptography==36.0.1") (lib.splitString "\n" req));
-
-      liberaforms-env = mach-nix.lib.${prev.system}.mkPython {
-        requirements = filteredReq;
-      };
-    in {
-      inherit liberaforms-env;
-
-      liberaforms = prev.stdenv.mkDerivation rec {
-        inherit version;
-        pname = "liberaforms";
-
-        src = inputs.liberaforms;
-
-        dontConfigure = true; # do not use ./configure
-        propagatedBuildInputs = [liberaforms-env prev.postgresql] ++ (with prev.python39Packages; [
-          flask_migrate
-          flask_login
-          pillow
-        ]);
-
-        installPhase = ''
-          cp -r . $out
-        '';
-      };
-    };
-
-    # Provide a nix-shell env to work with liberaforms.
-    # TODO: maybe remove? Nix automatically uses the default package if no devShell is found and `nix develop` is run
-    devShells = genSystems (system: {
-      default = pkgsFor.${system}.mkShell {
-        packages = [self.packages.${system}.liberaforms];
-      };
-    });
-
-    # Provide some packages for selected system types.
-    packages = genSystems (
-      system:
-        # Include everything from the overlay
-        (self.overlays.default null pkgsFor.${system})
-        # Set the default package
-        // {default = self.packages.${system}.liberaforms;}
-    );
+    overlays.default = import ./nix/overlay.nix;
 
     # Expose the module for use as an input in another flake
-    nixosModules.liberaforms = import ./nix/module.nix self;
+    nixosModules.liberaforms = callModule ./nix/module.nix;
 
-    # System configuration for a nixos-container local dev deployment
-    nixosConfigurations.liberaforms =
-      nixpkgs.lib.nixosSystem
-      {
-        system = "x86_64-linux";
-        modules = [
-          ({
-            pkgs,
-            lib,
-            ...
-          }: {
-            imports = [self.nixosModules.liberaforms];
-
-            boot.isContainer = true;
-            networking.useDHCP = false;
-            networking.hostName = "liberaforms";
-
-            # A timezone must be specified for use in the LiberaForms config file
-            time.timeZone = "Etc/UTC";
-
-            services.liberaforms = {
-              enable = true;
-              flaskEnv = "development";
-              flaskConfig = "development";
-              enablePostgres = true;
-              enableNginx = true;
-              #enableHTTPS = true;
-              domain = "liberaforms.local";
-              enableDatabaseBackup = true;
-              rootEmail = "admin@example.org";
-            };
-          })
-        ];
-      };
+    # Provide some packages for selected system types.
+    packages = genSystems (system:
+      let attrs = resolveOverlays pkgsFor.${system} [ (import ./nix/overlay.nix) ];
+      in attrs // { default = attrs.liberaforms; }
+    );
 
     # Tests run by 'nix flake check' and by Hydra.
-    checks = genSystems (system: let
-      inherit (self.packages.${system}) liberaforms;
-      pkgs = pkgsFor.${system};
-    in {
-      liberaforms-test = pkgs.stdenv.mkDerivation {
-        name = "${liberaforms.name}-test";
+    checks = genSystems (system: 
+      # Don't want our packages showing up in checks, so we put it in the `first:` argument
+      # TODO doing this is also kind of a mess because it makes using final confusing: 
+      #  if you want something from packages you have to use prev, final is only for the checks attrset
+      resolveOverlays
+        ( resolveOverlays pkgsFor.${system} [ self.overlays.default ] )
+        [ (import ./nix/checks.nix) ]
+    );
 
-        src = inputs.liberaforms;
+    # We use the default devShell behaviour
+    # devShells = ...
 
-        buildInputs = [liberaforms];
-
-        buildPhase = ''
-          source ${initPostgres}
-          initPostgres $(pwd)
-        '';
-
-        doCheck = true;
-
-        checkInputs = with pkgs.python39Packages; [cryptography factory_boy pytest pytest-dotenv] ++ liberaforms.propagatedBuildInputs;
-
-        checkPhase = ''
-          # Run pytest on the installed version. A running postgres database server is needed.
-          (cd tests && cp test.ini.example test.ini && pytest)
-        '';
-
-        installPhase = "mkdir -p $out"; # make this derivation return success
-      };
-    });
+    # System configuration for a nixos-container local dev deployment #TODO is there a local automated way to run an end-to-end test on this?
+    nixosConfigurations.liberaforms = mkSystem "x86_64-linux" [ (callModule ./nix/container.nix) ]; # TODO does that system argument make sense?
   };
 }
+

@@ -1,18 +1,14 @@
-self: {
-  config,
-  lib,
-  pkgs,
-  ...
-}:
-with lib; let
+{ config, lib, pkgs, inputs ? builtins.throw "Expected an inputs argument that corresponds to flake conventions", ... }: #TODO not sure this default arg is a good solution to this
+let
   cfg = config.services.liberaforms;
+  packages = inputs.self.packages.${pkgs.system};
 
   user = "liberaforms";
   group = "liberaforms";
   default_home = "/var/lib/liberaforms";
   default_logs = "/var/log/liberaforms";
-  penv = self.packages.${pkgs.system}.liberaforms-env;
-in {
+  penv = packages.liberaforms-env;
+in with lib;  {
   options.services.liberaforms = with types; {
     enable = mkEnableOption "LiberaForms server";
 
@@ -26,7 +22,7 @@ in {
 
     package = mkOption {
       type = types.package;
-      default = self.packages.${pkgs.system}.default;
+      default = packages.default;
       defaultText = literalExpression "<LiberaForms flake>.packages.<system>.default";
       example = literalExpression "pkgs.liberaforms";
       description = ''
@@ -182,7 +178,7 @@ in {
       after = ["network.target" "postgresql.service"];
       requires = ["postgresql.service"];
       restartIfChanged = true;
-      path = with pkgs; [postgresql_11 liberaforms-env openssl];
+      path = with pkgs; [postgresql_11 penv openssl];
 
       serviceConfig = {
         Type = "simple";
