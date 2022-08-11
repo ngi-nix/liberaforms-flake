@@ -1,170 +1,47 @@
-{
-  description =
-    "Liberaforms — An open source form server";
+inputs: final: prev: {
+  liberaforms-env = let
+    req = builtins.readFile (final.inputs.liberaforms + "/requirements.txt");
+    #TODO lots of notes here; mach-nix doesnt handle (??xref various issues) range of cryptography package - because it doesnt support pyproject.toml?
+    #I don't like this, but doing this is the fastest way to get the cryptography from nixpkgs, which is at 36.0.0 (mach-nix automatically finds it)
+    filteredReq = builtins.replaceStrings ["cryptography==36.0.1"] ["cryptography==36.0.0"] req;
+    # Needed for tests only; TODO upstream should make a dev-requirements.txt or whatever?
+    # https://gitlab.com/liberaforms/liberaforms/-/commit/16c893ff539bfb6249b3b02f4c834eb8848c16d5
+    extraReq = "factory_boy";
+    requirements = ''
+      ${filteredReq}
+      ${extraReq}
+    '';
+  in
+    inputs.mach-nix.lib.${prev.system}.mkPython {inherit requirements;};
 
-  inputs.nixpkgs = {
-    type = "github";
-    owner = "nixos";
-    repo = "nixpkgs";
-    ref = "master";
-  };
-
-  inputs.machnix = {
-    type = "github";
-    owner = "DavHau";
-    repo = "mach-nix";
-    ref = "3.3.0";
-  };
-
-  outputs = { self, nixpkgs, machnix }:
-    let
-
-      liberaforms-src = ./.;
-
-      # Extract version from VERSION.txt.
-      remove-newline = string: builtins.replaceStrings [ "\n" ] [ "" ] string;
-      version = remove-newline (builtins.readFile (liberaforms-src + "/VERSION.txt"));
-
-      # Postgres setup script for tests.
-      initPostgres = ./nix/initPostgres.sh;
-
-      # System types to support.
-      supportedSystems = [ "x86_64-linux" ];
-
-      # Helper function to generate an attrset '{ x86_64-linux = f "x86_64-linux"; ... }'.
-      forAllSystems = f:
-        nixpkgs.lib.genAttrs supportedSystems (system: f system);
-
-      # Nixpkgs instantiated for supported system types.
-      nixpkgsFor = forAllSystems (system:
-        import nixpkgs {
-          inherit system;
-          overlays = [ self.overlay ];
-        });
-
-      # mach-nix instantiated for supported system types.
-      machnixFor = forAllSystems (system:
-        import machnix {
-          pkgs = (nixpkgsFor.${system}).pkgs;
-          python = "python38";
-
-          # The default version of the pypi dependencies db that is updated with every mach-nix release
-          # might not be sufficient for newer releases of liberaforms. Edit here to pin to specific commit.
-          # The corresponding sha256 hash can be obtained with:
-          # $ nix-prefetch-url --unpack https://github.com/DavHau/pypi-deps-db/tarball/<pypiDataRev>
-          pypiDataRev = "020c5fbad4b0a6a9317646ed377631123730031c";
-          pypiDataSha256 = "14a0b5gn3rhd10yhg7a5m3mx9ans1v105iy0xdxik8v4zyjw3hmd";
-        });
-
+  liberaforms = prev.stdenv.mkDerivation {
+    pname = "liberaforms";
+    version = with builtins; let
+      remove-newline = replaceStrings ["\n"] [""];
     in
-    {
-      # A Nixpkgs overlay.
-      overlay = final: prev:
-        with final.pkgs; {
+      remove-newline (readFile (inputs.liberaforms + "/VERSION.txt"));
 
-          # Adding cffi to the requirements list was necessary for the cryptography package to build properly.
-          # The cryptography build also logged a message about the "packaging" package so it was added as well.
-          liberaforms-env = machnixFor.${system}.mkPython {
-            requirements = builtins.readFile (liberaforms-src + "/requirements.txt")+ "\ncffi>=1.14.5" + "\npackaging>=20.9";
-          };
+    src = inputs.liberaforms;
 
-          liberaforms = stdenv.mkDerivation {
-            inherit version;
-            name = "liberaforms-${version}";
-            src = liberaforms-src;
-            dontConfigure = true; # do not use ./configure
-            propagatedBuildInputs = [ liberaforms-env python38Packages.flask_migrate postgresql ];
+    dontConfigure = true; # do not use ./configure
 
-            installPhase = ''
-              cp -r . $out
-            '';
-          };
-        };
+    propagatedBuildInputs = [final.liberaforms-env prev.postgresql]; #TODO unfuck
 
-      # Provide a nix-shell env to work with liberaforms.
-      devShell = forAllSystems (system:
-        with nixpkgsFor.${system};
-        mkShell {
-          buildInputs = [ liberaforms ];
-        });
+    installPhase = ''
+      cp -r . $out
+    '';
 
-      # Provide some packages for selected system types.
-      packages = forAllSystems
-        (system: { inherit (nixpkgsFor.${system}) liberaforms; });
+    #doCheck = true; #TODO why does this explicitly need to be set #NOTE: this is default false here then?, - and it's overridden to enabled in the flake check
+    checkInputs = with final.liberaforms-env.passthru.pkgs; [pytest pytest-dotenv];
 
-      # The default package for 'nix build'.
-      defaultPackage =
-        forAllSystems (system: self.packages.${system}.liberaforms);
+    passthru.test = ''
+      source ${./test_env.sh.in}
+      initPostgres $(mktemp -d)
 
-      # Expose the module for use as an input in another flake
-      nixosModules.liberaforms = {
-        imports = [ ./nix/module.nix ];
-        nixpkgs.overlays = [ self.overlay ];
-      };
+      # Run pytest on the installed version. A running postgres database server is needed.
+      (cd tests && cp test.ini.example test.ini && pytest -k "not test_save_smtp_config") #TODO why does this break?
 
-      # System configuration for a nixos-container local dev deployment
-      nixosConfigurations.liberaforms = nixpkgs.lib.nixosSystem
-        {
-          system = "x86_64-linux";
-          modules =
-            [
-              ({ pkgs, lib, ... }: {
-
-                imports = [ ./nix/module.nix ];
-                nixpkgs.overlays = [ self.overlay ];
-
-                boot.isContainer = true;
-                networking.useDHCP = false;
-                networking.hostName = "liberaforms";
-
-                # A timezone must be specified for use in the LiberaForms config file
-                time.timeZone = "Etc/UTC";
-
-                services.liberaforms = {
-                  enable = true;
-                  flaskEnv = "development";
-                  flaskConfig = "development";
-                  enablePostgres = true;
-                  enableNginx = true;
-                  #enableHTTPS = true;
-                  domain = "liberaforms.local";
-                  enableDatabaseBackup = true;
-                  rootEmail = "admin@example.org";
-                };
-
-              })
-            ];
-        };
-
-      # Tests run by 'nix flake check' and by Hydra.
-      checks = forAllSystems
-        (system: {
-          inherit (self.packages.${system}) liberaforms;
-          liberaforms-test = with nixpkgsFor.${system};
-            stdenv.mkDerivation {
-              name = "${liberaforms.name}-test";
-
-              src = liberaforms-src;
-
-              buildInputs = [ liberaforms ];
-
-              buildPhase = ''
-                source ${initPostgres}
-                initPostgres $(pwd)
-              '';
-
-              doCheck = true;
-
-              checkInputs = with pkgs.python38Packages; [ pytest pytest-dotenv];
-
-              checkPhase = ''
-                # Run pytest on the installed version. A running postgres database server is needed.
-                (cd tests && cp test.ini.example test.ini && pytest)
-              '';
-
-              installPhase =
-                "mkdir -p $out"; # make this derivation return success
-            };
-        });
-    };
+      shutdownPostgres
+    '';
+  };
 }

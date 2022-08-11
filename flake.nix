@@ -3,9 +3,12 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    liberaforms.url = "gitlab:liberaforms/liberaforms";
-    liberaforms.flake = false;
     mach-nix.url = "github:DavHau/mach-nix/3.5.0";
+
+    liberaforms = {
+      url = "gitlab:liberaforms/liberaforms";
+      flake = false;
+    };
   };
 
   outputs = {
@@ -47,11 +50,13 @@
         src = inputs.liberaforms;
 
         dontConfigure = true; # do not use ./configure
-        propagatedBuildInputs = [liberaforms-env prev.postgresql] ++ (with prev.python39Packages; [
-          flask_migrate
-          flask_login
-          pillow
-        ]);
+        propagatedBuildInputs =
+          [liberaforms-env prev.postgresql]
+          ++ (with prev.python39Packages; [
+            flask_migrate
+            flask_login
+            pillow
+          ]);
 
         installPhase = ''
           cp -r . $out
@@ -70,7 +75,7 @@
     # Provide some packages for selected system types.
     packages = genSystems (
       system:
-        # Include everything from the overlay
+      # Include everything from the overlay
         (self.overlays.default null pkgsFor.${system})
         # Set the default package
         // {default = self.packages.${system}.liberaforms;}
@@ -80,68 +85,10 @@
     nixosModules.liberaforms = import ./nix/module.nix self;
 
     # System configuration for a nixos-container local dev deployment
-    nixosConfigurations.liberaforms =
-      nixpkgs.lib.nixosSystem
-      {
-        system = "x86_64-linux";
-        modules = [
-          ({
-            pkgs,
-            lib,
-            ...
-          }: {
-            imports = [self.nixosModules.liberaforms];
-
-            boot.isContainer = true;
-            networking.useDHCP = false;
-            networking.hostName = "liberaforms";
-
-            # A timezone must be specified for use in the LiberaForms config file
-            time.timeZone = "Etc/UTC";
-
-            services.liberaforms = {
-              enable = true;
-              flaskEnv = "development";
-              flaskConfig = "development";
-              enablePostgres = true;
-              enableNginx = true;
-              #enableHTTPS = true;
-              domain = "liberaforms.local";
-              enableDatabaseBackup = true;
-              rootEmail = "admin@example.org";
-            };
-          })
-        ];
-      };
-
-    # Tests run by 'nix flake check' and by Hydra.
-    checks = genSystems (system: let
-      inherit (self.packages.${system}) liberaforms;
-      pkgs = pkgsFor.${system};
-    in {
-      liberaforms-test = pkgs.stdenv.mkDerivation {
-        name = "${liberaforms.name}-test";
-
-        src = inputs.liberaforms;
-
-        buildInputs = [liberaforms];
-
-        buildPhase = ''
-          source ${initPostgres}
-          initPostgres $(pwd)
-        '';
-
-        doCheck = true;
-
-        checkInputs = with pkgs.python39Packages; [cryptography factory_boy pytest pytest-dotenv] ++ liberaforms.propagatedBuildInputs;
-
-        checkPhase = ''
-          # Run pytest on the installed version. A running postgres database server is needed.
-          (cd tests && cp test.ini.example test.ini && pytest)
-        '';
-
-        installPhase = "mkdir -p $out"; # make this derivation return success
-      };
-    });
+    nixosConfigurations = genSystems (system:
+      nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = [(import ./nix/container.nix self)];
+      });
   };
 }
