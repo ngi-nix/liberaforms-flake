@@ -24,6 +24,6 @@ self: {
     enableDatabaseBackup = true;
     rootEmail = "admin@example.org";
   };
-  
+
   system.stateVersion = "22.11";
 }
