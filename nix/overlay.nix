@@ -1,6 +1,6 @@
 inputs: final: prev: {
   liberaforms-env = let
-    req = builtins.readFile (final.inputs.liberaforms + "/requirements.txt");
+    req = builtins.readFile (inputs.liberaforms + "/requirements.txt");
     #TODO lots of notes here; mach-nix doesnt handle (??xref various issues) range of cryptography package - because it doesnt support pyproject.toml?
     #I don't like this, but doing this is the fastest way to get the cryptography from nixpkgs, which is at 36.0.0 (mach-nix automatically finds it)
     filteredReq = builtins.replaceStrings ["cryptography==36.0.1"] ["cryptography==36.0.0"] req;
