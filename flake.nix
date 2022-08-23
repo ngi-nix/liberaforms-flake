@@ -19,13 +19,6 @@
     mach-nix,
     ...
   } @ inputs: let
-    # Extract version from VERSION.txt.
-    remove-newline = string: builtins.replaceStrings ["\n"] [""] string;
-    version = remove-newline (builtins.readFile (inputs.liberaforms + "/VERSION.txt"));
-
-    # Postgres setup script for tests.
-    # initPostgres = ./nix/initPostgres.sh;
-
     # System types to support.
     supportedSystems = ["x86_64-linux"];
     # Helper function to generate an attrset '{ x86_64-linux = f "x86_64-linux"; ... }'.
@@ -40,39 +33,8 @@
       email = "admin@example.org";
     };
   in {
-    overlays.default = _: prev: let
-      inherit (nixpkgs) lib;
-
-      req = builtins.readFile (inputs.liberaforms + "/requirements.txt");
-      # filter out "cryptography" as it makes mach-nix fail. also it is considered bad practice to hold back that package
-      filteredReq = lib.concatStringsSep "\n" (builtins.filter (e: e != "cryptography==36.0.1") (lib.splitString "\n" req));
-
-      liberaforms-env = mach-nix.lib.${prev.system}.mkPython {
-        requirements = filteredReq;
-      };
-    in {
-      inherit liberaforms-env;
-
-      liberaforms = prev.stdenv.mkDerivation {
-        inherit version;
-        pname = "liberaforms";
-
-        src = inputs.liberaforms;
-
-        dontConfigure = true; # do not use ./configure
-        propagatedBuildInputs =
-          [liberaforms-env prev.postgresql]
-          ++ (with prev.python39Packages; [
-            flask_migrate
-            flask_login
-            pillow
-          ]);
-
-        installPhase = ''
-          cp -r . $out
-        '';
-      };
-    };
+    # Overlay containing package definitions
+    overlays.default = import nix/overlay.nix inputs;
 
     # Provide some packages for selected system types.
     packages = genSystems (
@@ -89,7 +51,7 @@
     # System configurations for nixos-container local dev deployment and DigitalOcean deployments
     nixosConfigurations = let
       genConfig = name: args:
-        genAttrs' supportedSystems (system: "${name}-" + system) (system:
+        genAttrs' supportedSystems (s: "${name}-${s}") (system:
           nixpkgs.lib.nixosSystem {
             inherit system;
             modules = [(import ./nix/${name}.nix args)];
