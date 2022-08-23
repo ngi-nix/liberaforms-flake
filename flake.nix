@@ -43,7 +43,7 @@
     in {
       inherit liberaforms-env;
 
-      liberaforms = prev.stdenv.mkDerivation rec {
+      liberaforms = prev.stdenv.mkDerivation {
         inherit version;
         pname = "liberaforms";
 
@@ -63,14 +63,6 @@
         '';
       };
     };
-
-    # Provide a nix-shell env to work with liberaforms.
-    # TODO: maybe remove? Nix automatically uses the default package if no devShell is found and `nix develop` is run
-    devShells = genSystems (system: {
-      default = pkgsFor.${system}.mkShell {
-        packages = [self.packages.${system}.liberaforms];
-      };
-    });
 
     # Provide some packages for selected system types.
     packages = genSystems (
