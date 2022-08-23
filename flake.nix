@@ -4,6 +4,8 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     mach-nix.url = "github:DavHau/mach-nix/3.5.0";
+    deploy-rs.url = "github:serokell/deploy-rs";
+    deploy-rs.inputs.nixpkgs.follows = "nixpkgs";
 
     liberaforms = {
       url = "gitlab:liberaforms/liberaforms";
@@ -22,13 +24,21 @@
     version = remove-newline (builtins.readFile (inputs.liberaforms + "/VERSION.txt"));
 
     # Postgres setup script for tests.
-    initPostgres = ./nix/initPostgres.sh;
+    # initPostgres = ./nix/initPostgres.sh;
 
     # System types to support.
     supportedSystems = ["x86_64-linux"];
     # Helper function to generate an attrset '{ x86_64-linux = f "x86_64-linux"; ... }'.
     genSystems = nixpkgs.lib.genAttrs supportedSystems;
+    # genAttrs but you can also apply a function to the name
+    genAttrs' = names: fn: fv: nixpkgs.lib.listToAttrs (map (n: nixpkgs.lib.nameValuePair (fn n) (fv n)) names);
     pkgsFor = nixpkgs.legacyPackages;
+
+    serverCfg = {
+      hostname = "forms";
+      domain = "example.org";
+      email = "admin@example.org";
+    };
   in {
     overlays.default = _: prev: let
       inherit (nixpkgs) lib;
@@ -76,11 +86,27 @@
     # Expose the module for use as an input in another flake
     nixosModules.liberaforms = import ./nix/module.nix self;
 
-    # System configuration for a nixos-container local dev deployment
-    nixosConfigurations = genSystems (system:
-      nixpkgs.lib.nixosSystem {
-        inherit system;
-        modules = [(import ./nix/container.nix self)];
-      });
+    # System configurations for nixos-container local dev deployment and DigitalOcean deployments
+    nixosConfigurations = let
+      genConfig = name: args:
+        genAttrs' supportedSystems (system: "${name}-" + system) (system:
+          nixpkgs.lib.nixosSystem {
+            inherit system;
+            modules = [(import ./nix/${name}.nix args)];
+          });
+    in
+      (genConfig "container" self) // (genConfig "digitalocean" {inherit self serverCfg;});
+
+    deploy.nodes = genAttrs' supportedSystems (s: "liberaforms-${s}") (system: {
+      hostname = serverCfg.domain;
+      profiles.system = {
+        user = "root";
+        sshUser = "root";
+        path = inputs.deploy-rs.lib.${system}.activate.nixos self.nixosConfigurations."liberaforms-${system}";
+      };
+    });
+
+    # This is highly advised, and will prevent many possible mistakes
+    checks = builtins.mapAttrs (system: deployLib: deployLib.deployChecks self.deploy) inputs.deploy-rs.lib;
   };
 }
