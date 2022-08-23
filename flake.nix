@@ -25,7 +25,11 @@
     genSystems = nixpkgs.lib.genAttrs supportedSystems;
     # genAttrs but you can also apply a function to the name
     genAttrs' = names: fn: fv: nixpkgs.lib.listToAttrs (map (n: nixpkgs.lib.nameValuePair (fn n) (fv n)) names);
-    pkgsFor = nixpkgs.legacyPackages;
+    pkgsFor = genSystems (system:
+      import nixpkgs {
+        inherit system;
+        overlays = [self.overlays.default];
+      });
 
     serverCfg = {
       hostname = "forms";
@@ -38,11 +42,12 @@
 
     # Provide some packages for selected system types.
     packages = genSystems (
-      system:
-      # Include everything from the overlay
-        (self.overlays.default null pkgsFor.${system})
+      system: {
+        # Include everything from the overlay
+        inherit (pkgsFor.${system}) liberaforms liberaforms-env;
         # Set the default package
-        // {default = self.packages.${system}.liberaforms;}
+        default = self.packages.${system}.liberaforms;
+      }
     );
 
     # Expose the module for use as an input in another flake
@@ -64,7 +69,7 @@
       profiles.system = {
         user = "root";
         sshUser = "root";
-        path = inputs.deploy-rs.lib.${system}.activate.nixos self.nixosConfigurations."liberaforms-${system}";
+        path = inputs.deploy-rs.lib.${system}.activate.nixos self.nixosConfigurations."digitalocean-${system}";
       };
     });
 
