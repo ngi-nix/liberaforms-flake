@@ -1,8 +1,0 @@
-*.env
-gunicorn.py
-/flask_session
-/docs
-/test
-/uploads/*
-/logs/*
-**/__pycache__
