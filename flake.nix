@@ -8,6 +8,7 @@
     deploy-rs.inputs.nixpkgs.follows = "nixpkgs";
 
     liberaforms = {
+    # url = "gitlab:liberaforms/liberaforms?rev=34c82375c1e991745a562e71ac0b1e80e429d8ce"; # v2.1.0
       url = "gitlab:liberaforms/liberaforms";
       flake = false;
     };
@@ -33,8 +34,8 @@
 
     serverCfg = {
       hostname = "forms";
-      domain = "example.org";
-      email = "admin@example.org";
+      domain = "cleeyv.tech";
+      email = "cleeyv@riseup.net";
     };
   in {
     # Overlay containing package definitions
@@ -65,7 +66,7 @@
       (genConfig "container" self) // (genConfig "digitalocean" {inherit self serverCfg;});
 
     deploy.nodes = genAttrs' supportedSystems (s: "liberaforms-${s}") (system: {
-      hostname = serverCfg.domain;
+      hostname = "${serverCfg.hostname}.${serverCfg.domain}";
       profiles.system = {
         user = "root";
         sshUser = "root";

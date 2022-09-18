@@ -21,7 +21,7 @@ with serverCfg; {
   networking.hostName = "${hostname}";
   networking.domain = "${domain}";
   # A timezone must be specified for use in the LiberaForms config file
-  time.timeZone = "Etc/UTC";
+  time.timeZone = "America/Montreal";
 
   services.liberaforms = {
     enable = true;
