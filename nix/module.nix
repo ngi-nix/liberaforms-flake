@@ -403,10 +403,10 @@ in
         locations."/static/".extraConfig = ''
           alias ${cfg.workDir}/liberaforms/static/;
         '';
-        locations."favicon.ico$".extraConfig = ''
+        locations."=/favicon.ico".extraConfig = ''
           alias ${cfg.workDir}/uploads/media/brand/favicon.ico;
         '';
-        locations."/logo.png/".extraConfig = ''
+        locations."=/logo.png".extraConfig = ''
           alias ${cfg.workDir}/uploads/media/brand/logo.png;
         '';
         locations."/file/media/".extraConfig = ''
@@ -419,7 +419,7 @@ in
     };
     security.acme = mkIf cfg.enableHTTPS {
       acceptTerms = true;
-      email = "${cfg.rootEmail}";
+      defaults.email = "${cfg.rootEmail}";
     };
   };
 }
