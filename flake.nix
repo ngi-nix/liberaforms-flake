@@ -33,8 +33,8 @@
       });
 
     serverCfg = {
-      hostname = "forms";
-      domain = "cleeyv.tech";
+      hostname = "secuform";
+      domain = "local";
       email = "cleeyv@riseup.net";
     };
   in {
@@ -63,14 +63,14 @@
             modules = [(import ./nix/${name}.nix args)];
           });
     in
-      (genConfig "container" self) // (genConfig "digitalocean" {inherit self serverCfg;});
+      (genConfig "container" self) // (genConfig "local" {inherit self serverCfg;});
 
     deploy.nodes = genAttrs' supportedSystems (s: "liberaforms-${s}") (system: {
       hostname = "${serverCfg.hostname}.${serverCfg.domain}";
       profiles.system = {
         user = "root";
         sshUser = "root";
-        path = inputs.deploy-rs.lib.${system}.activate.nixos self.nixosConfigurations."digitalocean-${system}";
+        path = inputs.deploy-rs.lib.${system}.activate.nixos self.nixosConfigurations."local-${system}";
       };
     });
 

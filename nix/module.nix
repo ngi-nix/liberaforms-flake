@@ -403,7 +403,7 @@ in
         locations."/static/".extraConfig = ''
           alias ${cfg.workDir}/liberaforms/static/;
         '';
-        locations."favicon.ico$".extraConfig = ''
+        locations."favicon.ico/".extraConfig = ''
           alias ${cfg.workDir}/uploads/media/brand/favicon.ico;
         '';
         locations."/logo.png/".extraConfig = ''
