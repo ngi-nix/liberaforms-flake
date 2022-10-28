@@ -209,7 +209,8 @@ in {
 
           SECRET_KEY="$(cat ${cfg.secretKeyFile})"
 
-          ROOT_USERS = ['${cfg.rootEmail}']
+          BASE_URL = 'https://${cfg.domain}'
+          ROOT_USER = '${cfg.rootEmail}'
           DEFAULT_LANGUAGE = '${cfg.defaultLang}'
           TMP_DIR = '/tmp'
 
@@ -247,15 +248,21 @@ in {
           # To modify these options, use services.liberaforms.extraConfig
           # See docs/upload.md for more info
           ENABLE_UPLOADS=True
+          TOTAL_UPLOADS_LIMIT='1 GB'
+          DEFAULT_USER_UPLOADS_LIMIT='50 MB'
           ENABLE_REMOTE_STORAGE=False
           # 1024 * 500 = 512000 = 500 KiB
           MAX_MEDIA_SIZE=512000
           # 1024 * 1024 * 1.5 = 1572864 = 1.5 MiB
           MAX_ATTACHMENT_SIZE=1572864
 
+          ENABLE_RSS_FEED=False
+
           # ENABLE_PROMETHEUS_METRICS
           # this activates Prometheus' /metrics route and metrics generation
           ENABLE_PROMETHEUS_METRICS=False
+
+          ENABLE_LDAP=False
 
           ${cfg.extraConfig}
           EOF
@@ -286,6 +293,12 @@ in {
             rm -r ./uploads
             cp -rL ${cfg.package}/uploads .
             chmod -R +w uploads
+          fi
+          # After instance creation, ./logs should also remain stateful
+          if [[ -L "./logs" ]]; then
+            rm -r ./logs
+            mkdir ./logs
+            chmod -R +w ./logs
           fi
 
           #######################################
@@ -352,7 +365,6 @@ in {
     # Based on https://gitlab.com/liberaforms/liberaforms/-/blob/main/docs/nginx.example
 
     networking = {
-      extraHosts = "127.0.0.1 liberaforms";
       firewall.allowedTCPPorts = mkIf cfg.enableNginx [80 443];
     };
 
@@ -370,10 +382,12 @@ in {
         extraConfig = ''
           access_log /var/log/nginx/liberaforms.access.log;
           error_log /var/log/nginx/liberaforms.error.log notice;
+          add_header Referrer-Policy "origin-when-cross-origin";
+          add_header X-Content-Type-Options nosniff;
         '';
         locations."/" = {
-          # Aliases for static, favicon, logo, emailheader, and media paths could be added here later.
-          proxyPass = "http://liberaforms:5000";
+          # Alias for emailheader could be added here later.
+          proxyPass = "http://127.0.0.1:5000";
           extraConfig = ''
             proxy_set_header    X-Forwarded-For $remote_addr;
             proxy_set_header    X-Real-IP   $remote_addr;
@@ -381,13 +395,26 @@ in {
             proxy_set_header Host $host;
           '';
         };
+        locations."/static/".extraConfig = ''
+          alias ${cfg.workDir}/liberaforms/static/;
+        '';
+        locations."=/favicon.ico".extraConfig = ''
+          alias ${cfg.workDir}/uploads/media/brand/favicon.ico;
+        '';
+        locations."=/logo.png".extraConfig = ''
+          alias ${cfg.workDir}/uploads/media/brand/logo.png;
+        '';
+        locations."/file/media/".extraConfig = ''
+          alias ${cfg.workDir}/uploads/media/;
+        '';
+
         enableACME = mkIf cfg.enableHTTPS true;
         forceSSL = mkIf cfg.enableHTTPS true;
       };
     };
     security.acme = mkIf cfg.enableHTTPS {
       acceptTerms = true;
-      email = "${cfg.rootEmail}";
+      defaults.email = "${cfg.rootEmail}";
     };
   };
 }
