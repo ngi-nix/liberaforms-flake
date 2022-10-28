@@ -65,7 +65,7 @@
       (genConfig "container" self) // (genConfig "digitalocean" {inherit self serverCfg;});
 
     deploy.nodes = genAttrs' supportedSystems (s: "liberaforms-${s}") (system: {
-      hostname = serverCfg.domain;
+      hostname = "${serverCfg.hostname}.${serverCfg.domain}";
       profiles.system = {
         user = "root";
         sshUser = "root";
