@@ -2,10 +2,10 @@
 
 ### Create and start
 
-Within the cloned `liberaforms` directory, run the following commands to create
+Within the cloned `liberaforms-flake` directory, run the following commands to create
 and then start the nixos-container
 ```sh
-sudo nixos-container create liberaforms --flake ./#liberaforms
+sudo nixos-container create liberaforms --flake ./#container-x86_64-linux
 sudo nixos-container start liberaforms
 ```
 The `create` command will output a local container IP address (such as
@@ -29,7 +29,7 @@ If you make changes to the flake.nix or the nix/module.nix and would like to see
 them reflected in an already running container, you can use the update command
 for this purpose:
 ```sh
-sudo nixos-container update liberaforms --flake ./liberaforms
+sudo nixos-container update liberaforms --flake ./container-x86_64-linux
 ```
 
 ### Stop and destroy
